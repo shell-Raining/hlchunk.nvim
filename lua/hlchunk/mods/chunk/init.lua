@@ -78,30 +78,68 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
     local start_col = math.max(math.min(beg_blank_len, end_blank_len) - self.meta.shiftwidth, 0)
 
     if beg_blank_len > 0 then
-        local virt_text_len = beg_blank_len - start_col
-        local beg_virt_text = self.conf.chars.left_top
-            .. self.conf.chars.horizontal_line:rep(virt_text_len - 2)
-            .. (virt_text_len > 1 and self.conf.chars.left_arrow or "")
-        local virt_text, virt_text_win_col = chunkHelper.calc(beg_virt_text, start_col, self.meta.leftcol)
-        local char_list = fn.reverse(utf8Split(virt_text))
-        vim.list_extend(virt_text_list, char_list)
+        local virt_text_width = beg_blank_len - start_col
+        local left_top_width = chunkHelper.virtTextStrWidth(self.conf.chars.left_top, self.meta.shiftwidth)
+        local left_arrow_width = chunkHelper.virtTextStrWidth(self.conf.chars.left_arrow, self.meta.shiftwidth)
+        ---@type string
+        local beg_virt_text
+        if left_top_width + left_arrow_width <= virt_text_width then
+            -- ╭─<if () {
+            -- │
+            -- ╭<if () {
+            -- │
+            beg_virt_text = self.conf.chars.left_top
+                .. chunkHelper.repeatToWidth(
+                    self.conf.chars.horizontal_line,
+                    virt_text_width - left_top_width - left_arrow_width,
+                    self.meta.shiftwidth
+                )
+                .. self.conf.chars.left_arrow
+        elseif left_top_width <= virt_text_width then
+            -- ╭─if () {
+            -- │
+            -- ╭if () {
+            -- │
+            beg_virt_text = self.conf.chars.left_top
+                .. chunkHelper.repeatToWidth(
+                    self.conf.chars.horizontal_line,
+                    virt_text_width - left_top_width,
+                    self.meta.shiftwidth
+                )
+        else
+            --  if () {
+            -- │
+            beg_virt_text = string.rep(" ", virt_text_width)
+        end
+        local virt_text, virt_text_win_col =
+            chunkHelper.calc(beg_virt_text, start_col, self.meta.leftcol, self.meta.shiftwidth)
+        local char_list = utf8Split(virt_text)
+        vim.list_extend(virt_text_list, vim.fn.reverse(char_list))
         vim.list_extend(row_list, vim.fn["repeat"]({ range.start }, #char_list))
-        vim.list_extend(virt_text_win_col_list, rangeFromTo(virt_text_win_col + #char_list - 1, virt_text_win_col, -1))
+        vim.list_extend(
+            virt_text_win_col_list,
+            vim.fn.reverse(chunkHelper.getColList(char_list, virt_text_win_col, self.meta.shiftwidth))
+        )
     end
 
-    local mid_char_nums = range.finish - range.start - 1
+    local mid_row_nums = range.finish - range.start - 1
     vim.list_extend(row_list, rangeFromTo((range.start + 1), (range.finish - 1)))
-    vim.list_extend(virt_text_win_col_list, vim.fn["repeat"]({ start_col - self.meta.leftcol }, mid_char_nums))
-    local mid = self.conf.chars.vertical_line:rep(mid_char_nums)
+    vim.list_extend(virt_text_win_col_list, vim.fn["repeat"]({ start_col - self.meta.leftcol }, mid_row_nums))
+    ---@type string[]
     local chars
     if start_col - self.meta.leftcol < 0 then
-        chars = vim.fn["repeat"]({ "" }, mid_char_nums)
+        chars = vim.fn["repeat"]({ "" }, mid_row_nums)
     else
-        chars = utf8Split(mid)
+        chars = vim.fn["repeat"]({ self.conf.chars.vertical_line }, mid_row_nums)
         -- when use click `<<` or `>>` to indent, we should make sure the line would not encounter the indent char
-        for i = 1, mid_char_nums do
-            local char = Pos.get_char_at_pos(Pos(range.bufnr, range.start + i, start_col), self.meta.shiftwidth)
-            if not char:match("%s") and #char ~= 0 then
+        for i = 1, mid_row_nums do
+            local line = cFunc.get_line(range.bufnr, range.start + i)
+            local vertical_line_width =
+                -- here we need to stop virtTextStrWidth at NULL;
+                -- "mid" virtual texts are not separated and they will be terminated on NULL
+                chunkHelper.virtTextStrWidth(self.conf.chars.vertical_line, self.meta.shiftwidth, true)
+            local end_col = start_col + vertical_line_width
+            if not chunkHelper.checkCellsBlank(line, start_col + 1, end_col, self.meta.shiftwidth) then
                 chars[i] = ""
             end
         end
@@ -109,15 +147,48 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
     vim.list_extend(virt_text_list, chars)
 
     if end_blank_len > 0 then
-        local virt_text_len = end_blank_len - start_col
-        local end_virt_text = self.conf.chars.left_bottom
-            .. self.conf.chars.horizontal_line:rep(virt_text_len - 2)
-            .. (virt_text_len > 1 and self.conf.chars.right_arrow or "")
-        local virt_text, virt_text_win_col = chunkHelper.calc(end_virt_text, start_col, self.meta.leftcol)
+        local virt_text_width = end_blank_len - start_col
+        local left_bottom_width = chunkHelper.virtTextStrWidth(self.conf.chars.left_bottom, self.meta.shiftwidth)
+        local right_arrow_width = chunkHelper.virtTextStrWidth(self.conf.chars.right_arrow, self.meta.shiftwidth)
+        ---@type string
+        local end_virt_text
+        if left_bottom_width + right_arrow_width <= virt_text_width then
+            -- │
+            -- ╰─>}
+            -- │
+            -- ╰>}
+            end_virt_text = self.conf.chars.left_bottom
+                .. chunkHelper.repeatToWidth(
+                    self.conf.chars.horizontal_line,
+                    virt_text_width - left_bottom_width - right_arrow_width,
+                    self.meta.shiftwidth
+                )
+                .. self.conf.chars.right_arrow
+        elseif left_bottom_width <= virt_text_width then
+            -- │
+            -- ╰─}
+            -- │
+            -- ╰}
+            end_virt_text = self.conf.chars.left_bottom
+                .. chunkHelper.repeatToWidth(
+                    self.conf.chars.horizontal_line,
+                    virt_text_width - left_bottom_width,
+                    self.meta.shiftwidth
+                )
+        else
+            -- │
+            --  }
+            end_virt_text = string.rep(" ", virt_text_width)
+        end
+        local virt_text, virt_text_win_col =
+            chunkHelper.calc(end_virt_text, start_col, self.meta.leftcol, self.meta.shiftwidth)
         local char_list = utf8Split(virt_text)
         vim.list_extend(virt_text_list, char_list)
         vim.list_extend(row_list, vim.fn["repeat"]({ range.finish }, #char_list))
-        vim.list_extend(virt_text_win_col_list, rangeFromTo(virt_text_win_col, virt_text_win_col + #char_list - 1))
+        vim.list_extend(
+            virt_text_win_col_list,
+            chunkHelper.getColList(char_list, virt_text_win_col, self.meta.shiftwidth)
+        )
     end
 end
 
