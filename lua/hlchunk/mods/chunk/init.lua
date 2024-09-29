@@ -81,7 +81,7 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
         local virt_text_len = beg_blank_len - start_col
         local beg_virt_text = self.conf.chars.left_top
             .. self.conf.chars.horizontal_line:rep(virt_text_len - 2)
-            .. self.conf.chars.left_arrow
+            .. (virt_text_len > 1 and self.conf.chars.left_arrow or "")
         local virt_text, virt_text_win_col = chunkHelper.calc(beg_virt_text, start_col, self.meta.leftcol)
         local char_list = fn.reverse(utf8Split(virt_text))
         vim.list_extend(virt_text_list, char_list)
@@ -112,12 +112,12 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
         local virt_text_len = end_blank_len - start_col
         local end_virt_text = self.conf.chars.left_bottom
             .. self.conf.chars.horizontal_line:rep(virt_text_len - 2)
-            .. self.conf.chars.right_arrow
+            .. (virt_text_len > 1 and self.conf.chars.right_arrow or "")
         local virt_text, virt_text_win_col = chunkHelper.calc(end_virt_text, start_col, self.meta.leftcol)
         local char_list = utf8Split(virt_text)
         vim.list_extend(virt_text_list, char_list)
-        vim.list_extend(row_list, vim.fn["repeat"]({ range.finish }, virt_text_len))
-        vim.list_extend(virt_text_win_col_list, rangeFromTo(virt_text_win_col, virt_text_win_col + virt_text_len - 1))
+        vim.list_extend(row_list, vim.fn["repeat"]({ range.finish }, #char_list))
+        vim.list_extend(virt_text_win_col_list, rangeFromTo(virt_text_win_col, virt_text_win_col + #char_list - 1))
     end
 end
 
