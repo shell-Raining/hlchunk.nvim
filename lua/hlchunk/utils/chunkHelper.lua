@@ -87,6 +87,67 @@ local function get_chunk_range_by_treesitter(pos)
     return chunkHelper.CHUNK_RANGE_RET.NO_CHUNK, Scope(pos.bufnr, -1, -1)
 end
 
+---@param char string
+---@param shiftwidth integer
+---@return integer
+local function virt_text_char_width(char, shiftwidth)
+    local b1 = char:byte(1)
+    if b1 == 0x00 then
+        -- NULL is a terminator when used in virtual texts
+        return 0
+    elseif b1 == 0x09 then
+        return shiftwidth
+    elseif b1 <= 0x1F or b1 == 0x7F then
+        -- control chars other than NULL and TAB are two cells wide
+        return 2
+    elseif b1 <= 0x7F then
+        -- other ASCII chars are single cell wide
+        return 1
+    else
+        return vim.api.nvim_strwidth(char)
+    end
+end
+
+---faster alternative to `vim.fn.reverse()`
+---unlike the original, this only supports lists
+---@generic T
+---@param list T[]
+---@return T[]
+function chunkHelper.listReverse(list)
+    local dst = {}
+    for i, v in ipairs(list) do
+        dst[#list + 1 - i] = v
+    end
+    return dst
+end
+
+---faster alternative to `vim.fn.repeat()`
+---unlike the original, the input will be repeated as-is and the output will always be a list
+---@generic T
+---@param input T
+---@param count integer
+---@return T[]
+function chunkHelper.repeated(input, count)
+    local dst = {}
+    for i = 1, count do
+        dst[i] = input
+    end
+    return dst
+end
+
+---faster alternative to `vim.list_extend()` (mutates dst!)
+---unlike the original, this function lacks validation and range support
+---@generic T
+---@param dst T[]
+---@param src T[]
+---@return T[] dst
+function chunkHelper.list_extend(dst, src)
+    for i = 1, #src do
+        dst[#dst + 1] = src[i]
+    end
+    return dst
+end
+
 ---@param opts? {pos: Pos, use_treesitter: boolean}
 ---@return CHUNK_RANGE_RETCODE enum
 ---@return Scope
@@ -123,7 +184,7 @@ end
 function chunkHelper.utf8Split(inputstr)
     local list = {}
     for uchar in string.gmatch(inputstr, "[^\128-\191][\128-\191]*") do
-        table.insert(list, uchar)
+        list[#list + 1] = uchar
     end
     return list
 end
@@ -135,7 +196,7 @@ function chunkHelper.rangeFromTo(i, j, step)
     local t = {}
     step = step or 1
     for x = i, j, step do
-        table.insert(t, x)
+        t[#t + 1] = x
     end
     return t
 end
@@ -148,8 +209,8 @@ function chunkHelper.getColList(char_list, leftcol, shiftwidth)
     local t = {}
     local next_col = leftcol
     for i = 1, #char_list do
-        table.insert(t, next_col)
-        next_col = next_col + chunkHelper.virtTextStrWidth(char_list[i], shiftwidth)
+        t[#t + 1] = next_col
+        next_col = next_col + virt_text_char_width(char_list[i], shiftwidth)
     end
     return t
 end
@@ -179,7 +240,7 @@ function chunkHelper.repeatToWidth(str, width, shiftwidth)
     local current_width = str_width * repeatable_len
     local i = 1
     while i <= #chars do
-        local char_width = chunkHelper.virtTextStrWidth(chars[i], shiftwidth)
+        local char_width = virt_text_char_width(chars[i], shiftwidth)
         ---assumed to be an out-of-bounds char (like in nerd fonts) followed by a whitespace if true
         local likely_oob_char =
             -- single-cell
@@ -231,18 +292,13 @@ end
 ---@return boolean
 function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
     local current_col = 1
-    local current_byte = 1
     local current_char = 1
-    while current_byte <= #line and current_col <= end_col do
-        local final_byte = vim.str_byteindex(line, current_char)
-        local char = line:sub(current_byte, final_byte)
+    local chars = chunkHelper.utf8Split(line)
+    while current_char <= #chars and current_col <= end_col do
+        local char = chars[current_char]
         local b1, b2, b3 = char:byte(1, 3)
-        if char == "" then
-            break
-        end
         ---@type integer
         local next_col
-        local next_byte = final_byte + 1
         local next_char = current_char + 1
         if char == " " then
             next_col = current_col + 1
@@ -256,13 +312,11 @@ function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
             next_col = current_col + 1
         else
             local char_width = vim.api.nvim_strwidth(char)
-            local next_byte_peek = line:byte(final_byte + 1)
-            if char_width == 1 and next_byte_peek == 0x20 then
+            if char_width == 1 and chars[current_char + 1] == " " then
                 -- the char is assumed to be an out-of-bounds char (like in nerd fonts)
                 -- followed by a whitespace
                 next_col = current_col + 2
                 -- skip the whitespace part of out-of-bounds char + " "
-                next_byte = next_byte + 1
                 next_char = next_char + 1
             else
                 next_col = current_col + char_width
@@ -334,7 +388,6 @@ function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
             return false
         end
         current_col = next_col
-        current_byte = next_byte
         current_char = next_char
     end
     return true
@@ -347,25 +400,11 @@ end
 function chunkHelper.virtTextStrWidth(str, shiftwidth, stop_on_null)
     local current_width = 0
     for _, char in ipairs(chunkHelper.utf8Split(str)) do
-        if char == "\0" then
-            if stop_on_null then
-                return current_width
-            end
-            -- just ignore otherwise
-        elseif char == "\t" then
-            current_width = current_width + shiftwidth
-        else
-            local b1 = char:byte(1)
-            if b1 <= 0x1F or b1 == 0x7F then
-                -- control chars other than NULL and TAB are two cells wide
-                current_width = current_width + 2
-            elseif b1 <= 0x7F then
-                -- other ASCII chars are single cell wide
-                current_width = current_width + 1
-            else
-                current_width = current_width + vim.api.nvim_strwidth(char)
-            end
+        if stop_on_null and char == "\0" then
+            -- NULL is a terminator when used in virtual texts
+            return current_width
         end
+        current_width = current_width + virt_text_char_width(char, shiftwidth)
     end
     return current_width
 end

@@ -114,23 +114,23 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
         local virt_text, virt_text_win_col =
             chunkHelper.calc(beg_virt_text, start_col, self.meta.leftcol, self.meta.shiftwidth)
         local char_list = utf8Split(virt_text)
-        vim.list_extend(virt_text_list, vim.fn.reverse(char_list))
-        vim.list_extend(row_list, vim.fn["repeat"]({ range.start }, #char_list))
-        vim.list_extend(
+        chunkHelper.list_extend(virt_text_list, chunkHelper.listReverse(char_list))
+        chunkHelper.list_extend(row_list, chunkHelper.repeated(range.start, #char_list))
+        chunkHelper.list_extend(
             virt_text_win_col_list,
-            vim.fn.reverse(chunkHelper.getColList(char_list, virt_text_win_col, self.meta.shiftwidth))
+            chunkHelper.listReverse(chunkHelper.getColList(char_list, virt_text_win_col, self.meta.shiftwidth))
         )
     end
 
     local mid_row_nums = range.finish - range.start - 1
-    vim.list_extend(row_list, rangeFromTo((range.start + 1), (range.finish - 1)))
-    vim.list_extend(virt_text_win_col_list, vim.fn["repeat"]({ start_col - self.meta.leftcol }, mid_row_nums))
+    chunkHelper.list_extend(row_list, rangeFromTo((range.start + 1), (range.finish - 1)))
+    chunkHelper.list_extend(virt_text_win_col_list, chunkHelper.repeated(start_col - self.meta.leftcol, mid_row_nums))
     ---@type string[]
     local chars
     if start_col - self.meta.leftcol < 0 then
-        chars = vim.fn["repeat"]({ "" }, mid_row_nums)
+        chars = chunkHelper.repeated("", mid_row_nums)
     else
-        chars = vim.fn["repeat"]({ self.conf.chars.vertical_line }, mid_row_nums)
+        chars = chunkHelper.repeated(self.conf.chars.vertical_line, mid_row_nums)
         -- when use click `<<` or `>>` to indent, we should make sure the line would not encounter the indent char
         for i = 1, mid_row_nums do
             local line = cFunc.get_line(range.bufnr, range.start + i)
@@ -144,7 +144,7 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
             end
         end
     end
-    vim.list_extend(virt_text_list, chars)
+    chunkHelper.list_extend(virt_text_list, chars)
 
     if end_blank_len > 0 then
         local virt_text_width = end_blank_len - start_col
@@ -183,9 +183,9 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
         local virt_text, virt_text_win_col =
             chunkHelper.calc(end_virt_text, start_col, self.meta.leftcol, self.meta.shiftwidth)
         local char_list = utf8Split(virt_text)
-        vim.list_extend(virt_text_list, char_list)
-        vim.list_extend(row_list, vim.fn["repeat"]({ range.finish }, #char_list))
-        vim.list_extend(
+        chunkHelper.list_extend(virt_text_list, char_list)
+        chunkHelper.list_extend(row_list, chunkHelper.repeated(range.finish, #char_list))
+        chunkHelper.list_extend(
             virt_text_win_col_list,
             chunkHelper.getColList(char_list, virt_text_win_col, self.meta.shiftwidth)
         )

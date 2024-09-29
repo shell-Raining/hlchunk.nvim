@@ -134,6 +134,32 @@ describe("indentHelper", function()
         end
     end)
 
+    it("listReverse happy path", function()
+        local inputList = {
+            { t = {}, res = {} },
+            { t = { 1 }, res = { 1 } },
+            { t = { 1, 2, 3 }, res = { 3, 2, 1 } },
+            { t = { 1, 2, 3, 4 }, res = { 4, 3, 2, 1 } },
+        }
+
+        for _, testCase in ipairs(inputList) do
+            local res = chunkHelper.listReverse(testCase.t)
+            assert.same(res, testCase.res)
+        end
+    end)
+
+    it("repeated happy path", function()
+        local inputList = {
+            { input = 1, repeat_to = 1, res = { 1 } },
+            { input = 1, repeat_to = 3, res = { 1, 1, 1 } },
+        }
+
+        for _, testCase in ipairs(inputList) do
+            local res = chunkHelper.repeated(testCase.input, testCase.repeat_to)
+            assert.same(res, testCase.res)
+        end
+    end)
+
     it("checkCellsBlank happy path", function()
         -- bunch of edge cases
         local inputList = {
@@ -216,6 +242,19 @@ describe("indentHelper", function()
         for _, testCase in ipairs(inputList) do
             local res = chunkHelper.virtTextStrWidth(testCase.input, testCase.shiftwidth, testCase.stop_on_null)
             assert.same(res, testCase.res)
+        end
+    end)
+
+    it("list_extend happy path", function()
+        local inputList = {
+            { dst = { 1, 2, 3 }, src = {}, res = { 1, 2, 3 } },
+            { dst = {}, src = { 4, 5, 6 }, res = { 4, 5, 6 } },
+            { dst = { 1, 2, 3 }, src = { 4, 5, 6 }, res = { 1, 2, 3, 4, 5, 6 } },
+        }
+
+        for _, testCase in ipairs(inputList) do
+            chunkHelper.list_extend(testCase.dst, testCase.src)
+            assert.same(testCase.dst, testCase.res)
         end
     end)
 end)
