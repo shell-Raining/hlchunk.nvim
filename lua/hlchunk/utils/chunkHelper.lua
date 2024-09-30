@@ -93,12 +93,12 @@ end
 local function virt_text_char_width(char, shiftwidth)
     local b1 = char:byte(1)
     if b1 == 0x00 then
-        -- NULL is a terminator when used in virtual texts
+        -- NULL is treated as a terminator when used in virtual text
         return 0
     elseif b1 == 0x09 then
         return shiftwidth
     elseif b1 <= 0x1F or b1 == 0x7F then
-        -- control chars other than NULL and TAB are two cells wide
+        -- ASCII control chars other than NULL and TAB are two cells wide
         return 2
     elseif b1 <= 0x7F then
         -- other ASCII chars are single cell wide
@@ -201,7 +201,7 @@ function chunkHelper.rangeFromTo(i, j, step)
     return t
 end
 
----@param char_list table<integer, string>
+---@param char_list string[]
 ---@param leftcol integer
 ---@param shiftwidth integer
 ---@return integer[]
@@ -241,7 +241,7 @@ function chunkHelper.repeatToWidth(str, width, shiftwidth)
     local i = 1
     while i <= #chars do
         local char_width = virt_text_char_width(chars[i], shiftwidth)
-        ---assumed to be an out-of-bounds char (like in nerd fonts) followed by a whitespace if true
+        ---if true, the char is assumed to be an out-of-bounds char (like in nerd fonts), followed by a whitespace
         local likely_oob_char =
             -- single-cell
             char_width == 1
@@ -305,7 +305,7 @@ function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
         elseif char == "\t" then
             next_col = current_col + shiftwidth
         elseif b1 <= 0x1F or char == "\127" then
-            -- despite nvim_strwidth returning 0 or 1, control chars are 2 cells wide
+            -- despite nvim_strwidth returning 0 or 1, ASCII control chars are 2 cells wide
             next_col = current_col + 2
         elseif b1 <= 0x7F then
             -- other ASCII chars are single cell wide
@@ -313,7 +313,7 @@ function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
         else
             local char_width = vim.api.nvim_strwidth(char)
             if char_width == 1 and chars[current_char + 1] == " " then
-                -- the char is assumed to be an out-of-bounds char (like in nerd fonts)
+                -- the char is assumed to be an out-of-bounds char (like in nerd fonts),
                 -- followed by a whitespace
                 next_col = current_col + 2
                 -- skip the whitespace part of out-of-bounds char + " "
@@ -327,9 +327,8 @@ function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
         -- (e.g. "%s" matches to "\v" but it will be printed as ^K)
         if
             (current_col >= start_col or next_col - 1 >= start_col)
-            -- Singles
-            --
             -- Indent characters
+            --
             -- Unicode Scripts Z*
             -- 0020 - SPACE
             and char ~= " "
@@ -340,6 +339,7 @@ function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
             and char ~= "	"
             --
             -- Non indent characters
+            --
             -- Unicode Scripts Z*
             -- 00A0 - NO-BREAK SPACE
             and char ~= " "
@@ -372,6 +372,7 @@ function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
             ]]
             --
             -- Others
+            --
             -- 2800 - BRAILLE PATTERN BLANK
             and char ~= "⠀"
             --[[
@@ -401,7 +402,7 @@ function chunkHelper.virtTextStrWidth(str, shiftwidth, stop_on_null)
     local current_width = 0
     for _, char in ipairs(chunkHelper.utf8Split(str)) do
         if stop_on_null and char == "\0" then
-            -- NULL is a terminator when used in virtual texts
+            -- NULL is treated as a terminator when used in virtual text
             return current_width
         end
         current_width = current_width + virt_text_char_width(char, shiftwidth)
