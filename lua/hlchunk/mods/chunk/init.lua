@@ -123,7 +123,7 @@ function ChunkMod:get_chunk_data(range, virt_text_list, row_list, virt_text_win_
     end
 
     local mid_row_nums = range.finish - range.start - 1
-    chunkHelper.list_extend(row_list, rangeFromTo((range.start + 1), (range.finish - 1)))
+    chunkHelper.list_extend(row_list, rangeFromTo(range.start + 1, range.finish - 1))
     chunkHelper.list_extend(virt_text_win_col_list, chunkHelper.repeated(start_col - self.meta.leftcol, mid_row_nums))
     ---@type string[]
     local chars
