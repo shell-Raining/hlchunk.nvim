@@ -87,6 +87,67 @@ local function get_chunk_range_by_treesitter(pos)
     return chunkHelper.CHUNK_RANGE_RET.NO_CHUNK, Scope(pos.bufnr, -1, -1)
 end
 
+---@param char string
+---@param shiftwidth integer
+---@return integer
+local function virt_text_char_width(char, shiftwidth)
+    local b1 = char:byte(1)
+    if b1 == 0x00 then
+        -- NULL is treated as a terminator when used in virtual text
+        return 0
+    elseif b1 == 0x09 then
+        return shiftwidth
+    elseif b1 <= 0x1F or b1 == 0x7F then
+        -- ASCII control chars other than NULL and TAB are two cells wide
+        return 2
+    elseif b1 <= 0x7F then
+        -- other ASCII chars are single cell wide
+        return 1
+    else
+        return vim.api.nvim_strwidth(char)
+    end
+end
+
+---faster alternative to `vim.fn.reverse()`
+---unlike the original, this only supports lists
+---@generic T
+---@param list T[]
+---@return T[]
+function chunkHelper.listReverse(list)
+    local dst = {}
+    for i, v in ipairs(list) do
+        dst[#list + 1 - i] = v
+    end
+    return dst
+end
+
+---faster alternative to `vim.fn.repeat()`
+---unlike the original, the input will be repeated as-is and the output will always be a list
+---@generic T
+---@param input T
+---@param count integer
+---@return T[]
+function chunkHelper.repeated(input, count)
+    local dst = {}
+    for i = 1, count do
+        dst[i] = input
+    end
+    return dst
+end
+
+---faster alternative to `vim.list_extend()` (mutates dst!)
+---unlike the original, this function lacks validation and range support
+---@generic T
+---@param dst T[]
+---@param src T[]
+---@return T[] dst
+function chunkHelper.list_extend(dst, src)
+    for i = 1, #src do
+        dst[#dst + 1] = src[i]
+    end
+    return dst
+end
+
 ---@param opts? {pos: Pos, use_treesitter: boolean}
 ---@return CHUNK_RANGE_RETCODE enum
 ---@return Scope
@@ -100,8 +161,13 @@ function chunkHelper.get_chunk_range(opts)
     end
 end
 
-function chunkHelper.calc(str, col, leftcol)
-    local len = vim.api.nvim_strwidth(str)
+---@param str string
+---@param col integer
+---@param leftcol integer
+---@param shiftwidth integer
+---@return string, integer
+function chunkHelper.calc(str, col, leftcol, shiftwidth)
+    local len = chunkHelper.virtTextStrWidth(str, shiftwidth)
     if col < leftcol then
         local byte_idx = math.min(leftcol - col, len)
         local utf_beg = vim.str_byteindex(str, byte_idx)
@@ -113,10 +179,12 @@ function chunkHelper.calc(str, col, leftcol)
     return str, col
 end
 
+---@param inputstr string
+---@return string[]
 function chunkHelper.utf8Split(inputstr)
     local list = {}
     for uchar in string.gmatch(inputstr, "[^\128-\191][\128-\191]*") do
-        table.insert(list, uchar)
+        list[#list + 1] = uchar
     end
     return list
 end
@@ -128,9 +196,79 @@ function chunkHelper.rangeFromTo(i, j, step)
     local t = {}
     step = step or 1
     for x = i, j, step do
-        table.insert(t, x)
+        t[#t + 1] = x
     end
     return t
+end
+
+---@param char_list string[]
+---@param leftcol integer
+---@param shiftwidth integer
+---@return integer[]
+function chunkHelper.getColList(char_list, leftcol, shiftwidth)
+    local t = {}
+    local next_col = leftcol
+    for i = 1, #char_list do
+        t[#t + 1] = next_col
+        next_col = next_col + virt_text_char_width(char_list[i], shiftwidth)
+    end
+    return t
+end
+
+---@param str string
+---@param width integer
+---@param shiftwidth integer
+function chunkHelper.repeatToWidth(str, width, shiftwidth)
+    local str_width = chunkHelper.virtTextStrWidth(str, shiftwidth)
+
+    -- "1" -> "1111"
+    if str_width == 1 then
+        return str:rep(width)
+    end
+
+    -- "12" -> "1212"
+    if width % str_width == 0 then
+        return str:rep(width / str_width)
+    end
+
+    -- "12" -> "12121"
+    -- "１" -> "１１ "
+    -- "⏻ " -> "⏻ ⏻  "
+    local repeatable_len = math.floor(width / str_width)
+    local s = str:rep(repeatable_len)
+    local chars = chunkHelper.utf8Split(str)
+    local current_width = str_width * repeatable_len
+    local i = 1
+    while i <= #chars do
+        local char_width = virt_text_char_width(chars[i], shiftwidth)
+        ---if true, the char is assumed to be an out-of-bounds char (like in nerd fonts), followed by a whitespace
+        local likely_oob_char =
+            -- single-cell
+            char_width == 1
+            -- followed by a whitespace
+            and chars[i + 1] == " "
+            -- non-ASCII
+            and chars[i]:byte(1) > 0x7F
+        local char = likely_oob_char and chars[i] .. " " or chars[i]
+        local next_width = current_width + (likely_oob_char and 2 or char_width)
+        if next_width < width then
+            s = s .. char
+            current_width = next_width
+        elseif next_width == width then
+            s = s .. char
+            break
+        else
+            s = s .. string.rep(" ", width - current_width)
+            break
+        end
+        if likely_oob_char then
+            -- skip the whitespace part of out-of-bounds char + " "
+            i = i + 2
+        else
+            i = i + 1
+        end
+    end
+    return s
 end
 
 function chunkHelper.shallowCmp(t1, t2)
@@ -145,6 +283,131 @@ function chunkHelper.shallowCmp(t1, t2)
         end
     end
     return flag
+end
+
+---@param line string
+---@param start_col integer
+---@param end_col integer
+---@param shiftwidth integer
+---@return boolean
+function chunkHelper.checkCellsBlank(line, start_col, end_col, shiftwidth)
+    local current_col = 1
+    local current_char = 1
+    local chars = chunkHelper.utf8Split(line)
+    while current_char <= #chars and current_col <= end_col do
+        local char = chars[current_char]
+        local b1, b2, b3 = char:byte(1, 3)
+        ---@type integer
+        local next_col
+        local next_char = current_char + 1
+        if char == " " then
+            next_col = current_col + 1
+        elseif char == "\t" then
+            next_col = current_col + shiftwidth
+        elseif b1 <= 0x1F or char == "\127" then
+            -- despite nvim_strwidth returning 0 or 1, ASCII control chars are 2 cells wide
+            next_col = current_col + 2
+        elseif b1 <= 0x7F then
+            -- other ASCII chars are single cell wide
+            next_col = current_col + 1
+        else
+            local char_width = vim.api.nvim_strwidth(char)
+            if char_width == 1 and chars[current_char + 1] == " " then
+                -- the char is assumed to be an out-of-bounds char (like in nerd fonts),
+                -- followed by a whitespace
+                next_col = current_col + 2
+                -- skip the whitespace part of out-of-bounds char + " "
+                next_char = next_char + 1
+            else
+                next_col = current_col + char_width
+            end
+        end
+        -- we're going to match these characters manually
+        -- as we can't use "%s" to check blank cells
+        -- (e.g. "%s" matches to "\v" but it will be printed as ^K)
+        if
+            (current_col >= start_col or next_col - 1 >= start_col)
+            -- Indent characters
+            --
+            -- Unicode Scripts Z*
+            -- 0020 - SPACE
+            and char ~= " "
+            --
+            -- Unicode Scripts C*
+            -- 0009 - TAB
+            -- control characters except TAB should be rendered like "^[" or "<200b>"
+            and char ~= "	"
+            --
+            -- Non indent characters
+            --
+            -- Unicode Scripts Z*
+            -- 00A0 - NO-BREAK SPACE
+            and char ~= " "
+            --[[
+            -- 1680 - OGHAM SPACE MARK
+            -- usually rendered as "-"
+            -- see https://www.unicode.org/charts/PDF/U1680.pdf
+            and char ~= " "
+            ]]
+            -- 2000..200A - EN QUAD..HAIR SPACE
+            -- " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " "
+            and not (b1 == 0xe2 and b2 == 0x80 and b3 >= 0x80 and b3 <= 0x8a)
+            -- 202F - NARROW NO-BREAK SPACE
+            and char ~= " "
+            -- 205F - MEDIUM MATHEMATICAL SPACE
+            and char ~= " "
+            -- 3000 - IDEOGRAPHIC SPACE
+            and char ~= "　"
+            --[[
+            -- 2028 - LINE SEPARATOR
+            -- some fonts lacks this and may render it as "?" or "█"
+            -- as this character is usually treated as a line-break
+            and char ~= " "
+            ]]
+            --[[
+            -- 2029 - PARAGRAPH SEPARATOR
+            -- some fonts lacks this and may render it as "?" or "█"
+            -- as this character is usually treated as a line-break
+            and char ~= " "
+            ]]
+            --
+            -- Others
+            --
+            -- 2800 - BRAILLE PATTERN BLANK
+            and char ~= "⠀"
+            --[[
+            -- 3164 - HANGUL FILLER
+            -- technically "blank" but can easily break the rendering
+            and "\227\133\164" -- do not replace this with a literal notation
+            ]]
+            --[[
+            -- FFA0 - HALFWIDTH HANGUL FILLER
+            -- technically "blank" but can easily break the rendering
+            and "\239\190\160" -- do not replace this with a literal notation
+            ]]
+        then
+            return false
+        end
+        current_col = next_col
+        current_char = next_char
+    end
+    return true
+end
+
+---@param str string
+---@param shiftwidth integer
+---@param stop_on_null? boolean
+---@return integer
+function chunkHelper.virtTextStrWidth(str, shiftwidth, stop_on_null)
+    local current_width = 0
+    for _, char in ipairs(chunkHelper.utf8Split(str)) do
+        if stop_on_null and char == "\0" then
+            -- NULL is treated as a terminator when used in virtual text
+            return current_width
+        end
+        current_width = current_width + virt_text_char_width(char, shiftwidth)
+    end
+    return current_width
 end
 
 return chunkHelper
