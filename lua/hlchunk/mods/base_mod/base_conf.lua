@@ -7,7 +7,7 @@ local ft = require("hlchunk.utils.filetype")
 ---| HexColor # a single color
 ---| HexColor[] # a rgb color string array, e.g. {"#ff0000", "#00ff00"}
 ---| vim.api.keyset.highlight[] # a style entry array, e.g. {{bg = "#ff0000", fg = "#00ff00"}, {bg = "#00ff00", fg = "#ff0000"}}
----| vim.api.keyset.get_hl_info[] # return value of `vim.api.nvim_get_hl()`
+---| vim.api.keyset.hl_info[] # return value of `vim.api.nvim_get_hl()`
 ---@alias StyleTypeFunction fun(): StyleTypeBase
 ---@alias HlChunk.StyleType StyleTypeBase | StyleTypeFunction
 
