@@ -151,6 +151,6 @@ indent = {
     style = {
         { bg = vim.fn.synIDattr(vim.fn.synIDtrans(vim.fn.hlID("Whitespace")), "fg", "gui") },
     },
-    exclude_filetype = exclude_ft,
+    exclude_filetypes = exclude_ft,
 }
 ```
