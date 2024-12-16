@@ -51,10 +51,8 @@ end
 ---@overload fun(conf?: HlChunk.UserChunkConf, meta?: HlChunk.MetaInfo): HlChunk.ChunkMod
 local ChunkMod = class(BaseMod, constructor)
 
--- chunk_mod can use text object, so add a new function extra to handle it
 function ChunkMod:enable()
     BaseMod.enable(self)
-    self:extra()
     self:render(Scope(0, 0, -1))
 end
 
@@ -239,14 +237,28 @@ function ChunkMod:createAutocmd()
             end
         end,
     })
+    api.nvim_create_autocmd("Filetype", {
+        group = self.meta.augroup_name,
+        callback = function()
+            -- chunk_mod can use text object, so add a new function extra to handle it
+            local ft = vim.bo[0].filetype
+            if not self.conf.exclude_filetypes[ft] then
+                self:extra()
+            end
+        end,
+    })
 end
 
 function ChunkMod:extra()
     local textobject = self.conf.textobject
-    if #textobject == 0 then
+    local keymap = textobject.keymap
+    local desc = textobject.desc
+
+    if not keymap then
         return
     end
-    vim.keymap.set({ "x", "o" }, textobject, function()
+
+    vim.keymap.set({ "x", "o" }, keymap, function()
         local pos = api.nvim_win_get_cursor(0)
         local retcode, cur_chunk_range = chunkHelper.get_chunk_range({
             pos = { bufnr = 0, row = pos[1] - 1, col = pos[2] },
@@ -266,7 +278,7 @@ function ChunkMod:extra()
         api.nvim_win_set_cursor(0, { s_row, 0 })
         vim.cmd("normal! V")
         api.nvim_win_set_cursor(0, { e_row, 0 })
-    end)
+    end, { desc = desc, buffer = true })
 end
 
 return ChunkMod

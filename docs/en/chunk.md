@@ -23,7 +23,7 @@ local default_conf = {
         left_bottom = "╰",
         right_arrow = ">",
     },
-    textobject = "",
+    textobject = {},
     max_file_size = 1024 * 1024,
     error_sign = true,
     -- animation related
@@ -45,7 +45,14 @@ The unique configuration options are `use_treesitter`, `chars`, `textobject`, `m
   - left_bottom
   - right_arrow
 
-- `textobject` is a string, which is empty by default. It is used to specify which string to use to represent the textobject. For example, I use `ic`, which stands for `inner chunk`, and you can modify it to other convenient characters.
+- `textobject` is a table, which is empty by default. This table contains two keys, `keymap` which triggers the textobject, and `desc` useful if you use a plugin like which-key, for instance this can be setup as follows:
+
+  ```lua
+  textobject = {
+      keymap = "ic",
+      desc = "inner chunk",
+  },
+  ```
 
 - `max_file_size` is a number, with a default of `1MB`. When the size of the opened file exceeds this value, the mod will be automatically turned off.
 

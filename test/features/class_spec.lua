@@ -57,7 +57,7 @@ describe("ChunkConf class", function()
             left_bottom = "┗",
             right_arrow = "━",
         }
-        user_textobject = "ic"
+        user_textobject = { keymap = "ic", desc = "scope" }
         user_max_file_size = 10 * 1024 * 1024
         user_error_sign = true
         user_duration = 300
