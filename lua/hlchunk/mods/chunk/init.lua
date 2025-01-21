@@ -194,8 +194,11 @@ function ChunkMod:createAutocmd()
         if ret_code == CHUNK_RANGE_RET.OK then
             self:render(range, { error = false, lazy = opts.lazy })
         elseif ret_code == CHUNK_RANGE_RET.NO_CHUNK then
-            self:clear(Scope(bufnr, 0, api.nvim_buf_line_count(bufnr)))
             self:updatePreState({}, {}, {}, false)
+            if self.meta ~= nil and self.meta.task ~= nil then
+                self.meta.task:stop()
+            end
+            self:clear(Scope(bufnr, 0, api.nvim_buf_line_count(bufnr)))
         elseif ret_code == CHUNK_RANGE_RET.CHUNK_ERR then
             self:render(range, { error = self.conf.error_sign, lazy = opts.lazy })
         elseif ret_code == CHUNK_RANGE_RET.NO_TS then
